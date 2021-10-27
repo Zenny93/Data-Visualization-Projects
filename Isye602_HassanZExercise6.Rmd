@@ -1,0 +1,101 @@
+---
+title: "Exercise 6: Comparison and Uncertainity-- Colum chart, box plot, sina plot, violin plot"
+author: "Zanub Hassan"
+date: "Oct 24, 2021"
+output: html_notebook
+---
+
+```{r}
+
+library(patchwork)
+library(tidyverse)
+library(tidyr)
+library(ggplot2movies)
+library(dplyr)
+library(ggforce)
+
+#part 1
+#reading data into the objet
+recentgrads <- read.csv(file = "recent-grads.csv", header = TRUE)
+
+#creating a dataframe of the data where the data has been filtered to contain only data with major_categories > or equal to 8.
+recentgrads.df <-recentgrads %>%
+  #grouped by major category first then filetered
+  group_by(Major_category) %>%
+  filter(n()>=8) %>%
+  #summarised the df to show mean and standard deviation of the meadian(salary)
+summarise(m.salary = mean(Median), sd.salary = sd(Median), total.salary = mean(m.salary))
+
+total.salary = mean(recentgrads.df$m.salary)
+
+ recentgrads.df$m.salary # prints column of the mean salary
+ 
+ recentgrads.df$sd.salary # prints column of sd of salary
+ 
+ recentgrads.df$total.salary # prints column of total salary
+ 
+ # creates a geom- colom plot. Scale is used to add dollar to the salary. 
+ #coor_flip flips the column to make the major_categories easy to read
+ #geom_line range plots the error using sd of salary  for the min and max
+ #geom_abline add the reference line based on the mean of the median(salary)
+ #reorder- orders the data
+ col.plot <- ggplot(recentgrads.df, 
+       aes(reorder(Major_category,m.salary), m.salary ))+
+  geom_col(alpha = .3, fill= "purple") +coord_flip() + scale_y_continuous(labels = scales::dollar_format())+
+   
+   
+   geom_linerange(aes(ymin = m.salary-sd.salary, ymax = m.salary+sd.salary))
+ 
+ col.plot + geom_abline(intercept=mean(recentgrads.df$m.salary),slope = 1, col ="red", linetype = "dashed")
+ 
+```
+##This my second level heading
+
+The good thing about this plot is that the error line allows the audience to see how precise the measurement is. This means that the audience can easily see how far the reported calue is away from the true value(error value). The mean line also shows the mean reference clearly in this plot.  The fact that there are different plots to looks at might confuse the audience.
+
+```{r}
+#Part 2
+#creating a box plot of major-category filtered as explained in part 1 above 
+boxplotdata <-recentgrads %>%
+  group_by(Major_category) %>%
+  filter(n()>=8)
+p<-ggplot(boxplotdata, aes(x = reorder(Major_category, Median), y= Median)) + geom_boxplot(outlier.color = "blue", outlier.shape = 8, outlier.size = 2) + coord_flip()
+p
+```
+##This my second level heading
+
+The good thing about this boxplot is plot is that it clearly shows where the outliers are and can be used for a larger amount of data compared to the plot above. The downside of this plot is that it might be difficult to locate the mean each time.
+
+```{r}
+##part 3
+## Point range and sina (use summary data for point range)
+# This final plot uses a combination of unsummarized data and summarized data. The summarized data is the recentgrads.df data used in part 1 and the Sinaplot data is the unsummarized data used for both the violin and sinaplot. Thinking about the getsalt principle, the violin plot was plotted first, followed by the sina plot then the point range.
+
+Sinaplotdata <-recentgrads %>%
+  group_by(Major_category) %>%
+  filter(n()>=8) %>%
+  mutate(m.sal =mean(Median), sd.sal = sd(Median))
+Combinationplot<-ggplot(recentgrads.df, 
+       aes(reorder(Major_category, m.salary), m.salary))+
+  
+   geom_violin(data =Sinaplotdata,aes(reorder(Major_category, Median), Median)) +
+ 
+  geom_sina(data =Sinaplotdata,aes(reorder(Major_category, Median), Median), alpha =0.15, col = "blue") +
+  
+  geom_pointrange(aes(ymin = m.salary-sd.salary, ymax = m.salary+sd.salary)) + coord_flip() + scale_y_continuous(labels = scales::dollar_format())  
+
+Combinationplot 
+```
+##This my second level heading
+
+The good thing about this plot is that different data distribution (e.g density, total datapoints)
+can all be represented. It is a very condensed way of showing different data distributions. The downside is that the plots are different and might be confusing for the audience to understand.
+
+##This my second level heading
+
+These plots cannot be used to determine the optimal carrer based on the mean-end salaries because gender is not used as part of this dtatistical distribution and salaries in different fields does vary based on the gender too.
+
+OverallWomenEarnings is a new variable I might create using abstraction. This will look at shared women, median and major. It would look at the share of women in each major and the amount that they earn (median) . The major has to have at least a minimum of 10 women. This new column would be good to see the salary women are paid depending on their major, and can help the female audience determine which major will help them get the highest amount of salary.
+
+
+
