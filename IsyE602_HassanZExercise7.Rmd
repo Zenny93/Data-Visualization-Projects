@@ -1,0 +1,166 @@
+---
+title: "Exercise 7: Model visualization"
+author: "Zanub Hassan"
+Date: "Oct 31, 2021"
+output: html_notebook
+---
+
+In this exercise you will use a large dataset that describes houses that were sold in Ames, Iowa. You will use these Ames house data from the package "AmesHousing" and parallel coordinate plots to understand how houses vary by neighborhood. Then you will fit models for each neighborhood based on the size of the house to assess whether a linear model fits all neighbohoods in a similar manner. A scatter plot shows whether this is the case.  
+
+Objectives: 
+	- Create plots for exploratory data analysis of high-dimensional data
+	- Use abstract, aggregated model-based variables (i.e., overall fit., intercept and slope of a linear model) to compare groups of data
+	- Appreciate how visualizations might help you identify unfair machine learning models
+	
+Submit:
+Complete each section chunck of code below to process the data and create the graphs.  I have given you some bits of code to do some transformations that we have not discussed in class. Briefly answer the questions posed in describing what each chunk does and the meaning of the graphs.
+
+## Load packages
+
+```{r}
+
+library(AmesHousing)
+library(janitor) # Useful package for converting variable names, such as "Lot shape" to "lot_shape"
+library(scales)
+library(broom)
+library(tidyverse)
+library(ggrepel)
+
+```
+
+## Load and clean the data
+What the clean_names function does to the names?
+Why is "where" useful?
+
+```{r fig.height=5}
+
+house.df = ames_raw %>% janitor::clean_names()
+
+house.df = house.df %>% 
+  select(pid, sale_price, neighborhood, # Selects specific variables
+         where(is.numeric), # Selects numeric variables
+         -order, -(misc_val:sale_condition), -lot_area) %>% # Removes specific variables
+  select(which(colMeans(is.na(.)) < 0.05)) %>% # Removes columns with more than 5% missing values
+  filter(sale_price > 15000) %>% # Keeps houses that sold for more than $15,000
+  group_by(neighborhood) %>% 
+  filter(n() > 50) %>% # Removes neighborhoods that have had fewer than 50 home sales
+  ungroup()
+
+```
+## This is my second level heading
+-T he clean name functions helps tidy up and standardize the names so that names follow a similar convention. It can also be used to specify what kind of case the names should be.
+- Where is useful for finding patterns in a dataset. In this case, it will check for numeric variables.
+
+## Create a parallel coordinate chart
+
+- Try mapping color to neighborhood and faceting by neiborhood. Which is most effective and why?
+
+- What does the parallel coordinate plot reveal about the neighborhoods?
+
+```{r fig.height=5}
+
+    
+## Convert to long format with all the numeric variable in a columns (i.e, pivot longer)
+# Hint: specify the "cols" using the selection function from above: where(is.numeric)
+
+
+## Scale values
+# Hint: Be sure to group by variable before scaling and to ungroup after
+long.house.df = house.df %>% 
+  pivot_longer(cols = where(is.numeric), names_to = "variable", values_to ="values") %>%
+  group_by(variable) %>%
+  mutate(scale_values = scale(values)) %>%
+  ungroup()
+
+## Create a variable to define what neighborhoods to plot
+long.house.df = long.house.df %>% 
+   mutate(highlight =
+      if_else(neighborhood=="CollgCr"|
+              neighborhood=="StoneBr"|
+              neighborhood=="Gilbert", 
+              "yes", "no"))
+
+## Create a parallel coordinate plot of the scaled values for selected neighborhoods 
+# Hint: Use the following to specify the subset of data to plot
+#  ggplot(data = long.house.df %>%  filter(highlight == "yes"),
+# Hint: Consider the following to highlight the zero crossing and sales price
+#  geom_vline(xintercept = "sale_price", colour = "grey98", size = 3) +
+#  geom_hline(yintercept = 0, colour = "grey99", size = 4) +
+
+ggplot(data = long.house.df %>% filter(highlight == "yes"), aes(variable, scale_values)) +
+  geom_hline(yintercept = 0, colour = "grey99", size = 4) +
+  geom_vline(xintercept = "sale_price", colour = "grey98", size = 3) +
+  geom_line(aes(group = pid, color = "neighborhood"), size = 0.15, alpha = 0.2) +
+  scale_color_manual(values = c("blue","grey50")) +
+  coord_flip() +
+  facet_wrap(~neighborhood)
+  
+```
+## This is my second level heading
+- Facets works best because it divides the plot by neighborhood so it is easier for the audience to discern the plot for each neighborhood. Mapping to color does not really help with understanding what part of the plot belongs to what neighborhood.
+- The parallel coordinate plot tells us that certain variables are more prominent in some neighborhoods compared to other neighborhoods.
+
+## Fit models to all the neighborhoods and plot the estimated intercept and slope
+
+- Fit models to predict sale\_price as a function of size: sale\_price\~x1st\_flr\_sf
+- Use glance and tidy to extract both overall model fit data and model parameters
+- Hint: After using nest-map-unnest use pivot wider to move the intercept and slope into separate columns
+- Hint: After unnesting, use clean names to turn "(Intercept)" into an acceptable R name
+- Hint: Use the scale to show axis labels as dollars
+- Map the size of the point the r.squared value. R-square value indicates how well the model can predict the data
+
+- This plot uses a linear model to abstract and aggregate data for each neighborhood.  Why this might be useful and why it might be worse than useless?
+
+- If this regression model was guiding admission decisions for university students based on GPA rather than predicting house prices based on their size, how might the r-square value indicate potential unfairness if the points represent different socio-economic groups rather the neigborhoods.
+
+
+```{r warning=FALSE}
+## Fit models for each neighborhood
+params.df = house.df %>% ungroup() %>%
+  group_by(neighborhood) %>%
+  nest() %>%
+  mutate(fitmodels = map(data,~lm(sale_price~x1st_flr_sf, data = ., na.action = na.exclude)),
+         glanced = map(fitmodels, glance),
+         tidied = map(fitmodels, tidy) #extracts model parameters
+  )
+  
+
+## Unnest the model parameters 
+tidymod.df = params.df %>% select(neighborhood,tidied) %>%
+  unnest(tidied)
+
+## Unnest the model fit
+fitmod.df = params.df %>% select(neighborhood, glanced) %>%
+  unnest(glanced)
+
+## Use left_join to combine the parameter and fit dataframes
+tidymod.df = left_join(tidymod.df, fitmod.df, by = "neighborhood")
+
+
+## Define highlighted neighborhoods 
+# Hint: Adapt the code from the previous section
+long.tidymod.df = tidymod.df %>% 
+   mutate(highlight =
+      if_else(neighborhood=="CollgCr"|
+              neighborhood=="StoneBr"|
+              neighborhood=="Gilbert", 
+              "yes", "no")) %>% janitor::clean_names() #%>% 
+  
+
+wide.tidymod.df  = pivot_wider(long.tidymod.df,id_cols = neighborhood, names_from = term, values_from = estimate) 
+
+wide.tidymod.df = left_join(wide.tidymod.df, fitmod.df, by = "neighborhood")
+
+## Plot the slope and intercept in a scatter plot with the size of the point mapped to the r-square
+ggplot(wide.tidymod.df, aes(`(Intercept)`, x1st_flr_sf, label = neighborhood))+
+  geom_text_repel(nudge_y = 0.75) +
+  geom_point(aes(size = r.squared) )+
+ scale_x_continuous(labels = scales::dollar_format()) 
+  
+
+
+```
+## This is my second level heading
+- Linear model is good in this case because it can be good for making predictions across the neighborhood and seeing how the model fits across the neighborhood. It might be a bad idea if the quality of the data is not good or there are outliers.
+
+-The r-squared value might indicate unfairness because because socioeconomic status differs and contributes significantly to how some students perform in school . So it would not be fair to use this a deciding method for accepting students in school.
