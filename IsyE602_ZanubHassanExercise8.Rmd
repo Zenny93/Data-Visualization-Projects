@@ -1,0 +1,168 @@
+---
+author: "Zanub Hassan"
+title: "Exercise 8: Map of crashes"
+date: " Nov 7th, 2021"
+output: html_notebook
+---
+
+In this exercise, you will use a very large dataset that documents all the fata motorvehicle crashes that have occurred in the US from 2006 to 2018. You will plot the individual crashes over a map of the state of Wisconsin. You will also show the rate of crashes per capita for all the counties in the state.  
+
+Objectives: 
+	- Create maps using a raster image that shows roads and topography
+	- Calculate a meaningful indicator of crash likelihood based on the population of each county
+	- Use a faceted and a differenced representation to show which counties are seeing an increase or a decrease in fatal crashes
+	- Create a plot that might be a more effective way of showing trends in crash data
+	
+Be sure to download the "fars2020.rda" data file
+	
+Submit:
+Complete each section chunck of code below to process the data and create the graphs.  I have given you some bits of code to do some transformations that we have not discussed in class. Briefly answer the questions posed in describing what each chunk does and the meaning of the graphs.
+
+## Load packages
+```{r}
+library(tidyverse) # Includes ggplot and dplyr
+library(ggalt)
+library(ggpointdensity) # To address overplotting and color lines with density
+library(ggrepel)
+library(patchwork) # To combine plots
+library(ggforce)
+library(maps) # Map data for states and counties
+library(mapproj) # For a range of map projections: mercator, albers, mollweide, gilbert...
+library(usmap) # For 50 states
+library(ggmap)
+rm(list = ls()) # Clears all variables
+```
+
+
+## Load and transform data
+```{r}
+
+## Load and transform the fatal crash data
+load("fars_2020.data")
+fars.df = fars.df %>% select(latitude, longitud, everything()) %>% 
+  filter(longitud < 777) %>%  # Removes missing values coded by 777, 888...
+  mutate(state = str_pad(state, 2, pad = "0")) %>% 
+  mutate(county = str_pad(county, 3, pad = "0")) %>% 
+  unite("fips", state:county, sep = "", remove = FALSE)
+
+```
+
+
+## Load a raster image of the Wisconsin area and overlay crashes
+Hint: Adapt the code for raster image of the midwest in the MapsJoins demo notebook
+
+Why the resulting image might not be very useful?
+
+```{r}
+
+## Filter crashes to include only crashes from Wisconsin, based on the fips number
+Wisc.crash.df = fars.df %>% filter(state == 55)
+## Use ggmap to create a raster-based plot with pointdensity overlay
+midwest.bb <- c(left = -95, bottom = 40, right = -86, top = 47) 
+map <- get_stamenmap(midwest.bb, # bounding box in lattitude and longitude
+                     zoom = 7, # specifies level of detail, lower for bigger area
+                     maptype = "toner-lite" # specifies map style
+                     )
+ggmap(map) + geom_pointdensity(data = Wisc.crash.df, aes(longitud,latitude), size = 0.05, show.legend = FALSE, alpha = 0.10)+
+  geom_point(x = -89.4012302, y = 43.0730517, size = 4, colour = "red") +
+  theme_void()
+
+```
+## This is my second level heading
+The resulting image might not be useful because the crash points might be influenced by the population in the different counties They also have no animation(showing the values) to make it easier for an audience to know what the value of the crash in that county is.
+
+## Plot the Wisconsin counties using polygons data and fill with percapita crash rate
+Hint: Use the "countypop" data from the usmap package
+Hint: Be sure to filter the polygons to include just Wisconsin when using the usmap map data
+
+Wisconsin is a major tourist destination, what are the implications of this for the consrtruct validity of the per capita crash rate?
+```{r}
+## Transform filtered data to calculate the per capita fatal crash rate for each county
+countypopdat.df = countypop %>% group_by(fips) %>%
+  filter(abbr == "WI")
+## Estimating percapita crash rate in Wisconsin
+Wisc.percapita.df = Wisc.crash.df %>% group_by(fips)
+Joindata.df = left_join(countypopdat.df, Wisc.percapita.df, by ="fips") %>% mutate(percaprate =(sum(fatals))/pop_2015)
+  
+## Use ggplot to plot polygons filled by percapita crash rates
+
+## Extract the map data
+counties_map = us_map("counties")
+Wisccounties_map = left_join(counties_map, Joindata.df, by = "fips") %>% filter(abbr.x == "WI")
+  
+  # Variable that matches exactly (i.e. lower case)
+
+# Create the map
+ggplot(Wisccounties_map, aes(x, y, group = group)) +
+  geom_polygon(aes(fill = percaprate), color = "white") +
+  labs(title = "Wisconsin Counties Per Capita Crash Rate") +
+  theme_void()
+
+
+
+```
+## This is my second level heading
+A lot of tourists might be skeptical to drive when they visit Wisconsin due to the percapita crash rate. It might also reduce their willingness to travel there since moving around does not seem to be that safe.
+
+## Divide the data and plot the data using facet and difference between pre and post 2012
+Hint: You need to use "if_else" to create the pre/post variable
+
+Hint: You need to use "spread" to create a difference variable
+
+What is a benefit of the facet plot relative to the difference plot?
+
+What is a benefit of the difference plot relative to the facet plot?
+```{r}
+
+## Create pre/post variable and calculate the mean crash rate
+Wisccounties_map.df = Wisccounties_map
+Wisccounties_map.df$year<-as.numeric(as.character(Wisccounties_map.df$year))
+pre_post.data.df = Wisccounties_map.df %>%
+  group_by(fips,year)
+  
+  pre_post.data.df =pre_post.data.df %>% mutate(pre_post= if_else(year < 2012,"pre","post"))
+
+meancashrate.df = pre_post.data.df %>% group_by(county.x, pre_post) %>%
+  mutate(mean_crash_counties = (sum(fatals)/pop_2015))
+## Recreate county plot faceted horizontally by the pre/post 2012
+ggplot(meancashrate.df, aes(x, y, group = group)) +
+  geom_polygon(aes(fill = mean_crash_counties), color = "white") +
+  labs(title = "Wisconsin Counties mean crash rate pre_post") +
+  theme_void() +
+  facet_wrap(~pre_post)
+## Plot the difference between pre and post 2012
+wide.meancashrate.df  = pivot_wider(meancashrate.df,id_cols = fips, names_from = pre_post, values_from = mean_crash_counties) %>%
+  unnest(pre) %>%
+  unique()%>%
+  unnest(post)%>%
+  unique() %>%
+  mutate(pre_postdiff = post-pre, na.rm = TRUE)
+
+wide.meancashrate.df = left_join(wide.meancashrate.df,meancashrate.df, by = "fips")
+
+ggplot(wide.meancashrate.df, aes(x, y, group = group)) +
+  geom_polygon(aes(fill = pre_postdiff), color = "white") +
+  labs(title = "Pre_post differences Plot") +
+  theme_void()
+
+```
+## This is my second level heading
+-Since facet splits the plot into pre and post plots. It is aesthetically easier to understand for the audience than the difference plot.
+- The difference plot does show a clear differnce between both pre and post 2012 which is an information that can be seen from the facet plot.
+## Create a plot that might be better for showing trends in county crash data
+Hint: Reconsider using maps in favor of another representation such as slope graph
+
+Hint: If you choose to create a slope graph make sure your data are in the right form
+Why would your recommend this representation relative to the map (or not)?
+```{r}
+ggplot(wide.meancashrate.df, aes(x = pre_post , y = mean_crash_counties, group = fips))  +
+  geom_point() +
+  geom_line(aes(alpha= 0.10)) +
+  labs(title = "Pre_post differences Plot")
+  
+```
+## This is my second level heading.
+Maps are not completely that easy to understand by a lot of peole. A line/point plot like this is more simplified and easier to show trends.
+
+
+
